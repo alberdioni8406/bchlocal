@@ -105,7 +105,7 @@ Open **http://localhost:3000**
 
 ---
 
-## API map (11 serverless functions — under Vercel Hobby limit of 12)
+## API map
 
 Routes are consolidated with optional catch-alls so public URLs stay the same.
 
