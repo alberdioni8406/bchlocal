@@ -171,13 +171,45 @@ Escrow, DeFi, token launches, native mobile apps, AI recommendations, complex ma
 
 ---
 
-## Deploy notes
+## Deploy notes (Vercel + Neon)
 
-- Designed for **Vercel** + **Neon**
-- Set env vars in the host
-- Run `prisma db push` (or migrate) against production DB
-- Keep `DEMO_PAYMENT_MODE=false` in production
-- Integrate a real BCH payment provider / indexer for payment detection
+1. **Create a Neon Postgres database** and copy the connection string.
+
+2. **In Vercel → Project → Settings → Environment Variables** set for Production (and Preview if desired):
+
+   | Variable | Example / notes |
+   |----------|-----------------|
+   | `DATABASE_URL` | `postgresql://...@ep-....neon.tech/neondb?sslmode=require` |
+   | `NEXTAUTH_SECRET` | Long random string (e.g. `openssl rand -base64 32`) |
+   | `NEXTAUTH_URL` | `https://bch-local.vercel.app` (exact production URL) |
+   | `NEXT_PUBLIC_APP_URL` | Same as `NEXTAUTH_URL` |
+   | `DEMO_PAYMENT_MODE` | `true` while testing; `false` for real BCH detection |
+   | `NEXT_PUBLIC_DEFAULT_LOCALE` | `pt` |
+   | `NEXT_PUBLIC_DEFAULT_COUNTRY` | `MZ` |
+   | `NEXT_PUBLIC_DEFAULT_CITY` | `Maputo` |
+
+3. **Push schema + seed the production database** (from your machine, with production `DATABASE_URL`):
+
+   ```bash
+   export DATABASE_URL="postgresql://...your-neon-url..."
+   npx prisma db push
+   npm run db:seed
+   ```
+
+   After a successful seed you can log in with:
+
+   | Role  | Email             | Password  |
+   |-------|-------------------|-----------|
+   | User  | joao@demo.mz      | demo1234  |
+   | Admin | admin@bchlocal.mz | demo1234  |
+
+4. Redeploy on Vercel (or push a commit) so the new build picks up env vars.
+
+5. When you are ready for real payments: set `DEMO_PAYMENT_MODE=false` and integrate a BCH indexer / payment provider (Bitcoin.com API, FullStack.cash, Electron Cash RPC, etc.).
+
+### Why login fails on a fresh deploy
+
+The demo users only exist **after** `npm run db:seed` has been run against the same database that Vercel uses. If the production DB is empty, credentials will always be rejected. Re-running the seed is safe (it upserts users and refreshes the demo password hash).
 
 ---
 
