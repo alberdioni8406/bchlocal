@@ -118,12 +118,23 @@ export default function ListingPage() {
         </Link>
       </div>
 
-      <div className="aspect-[4/3] bg-slate-100 flex items-center justify-center text-slate-400">
+      <div className="relative aspect-[4/3] bg-slate-100 overflow-hidden">
         {listing.images[0] ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={listing.images[0].url} alt="" className="w-full h-full object-cover" />
+          <img
+            src={listing.images[0].url}
+            alt={listing.title}
+            className="w-full h-full object-cover"
+          />
         ) : (
-          "Listing images"
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400 bg-gradient-to-br from-slate-100 to-slate-200">
+            <span className="text-sm font-medium">No photos yet</span>
+          </div>
+        )}
+        {listing.images.length > 1 && (
+          <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-black/60 text-white text-xs font-medium">
+            1 / {listing.images.length}
+          </div>
         )}
       </div>
 
