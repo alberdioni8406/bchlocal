@@ -1,9 +1,34 @@
-# BCH Local V1
+# BCH Local V2
 
 **Buy. Sell. Get paid. In Bitcoin Cash.**
 
-A production-quality MVP local marketplace with Bitcoin Cash as the native payment rail.  
-Initial market: Mozambique (Maputo/Matola). Architecture ready for international expansion.
+A local marketplace with Bitcoin Cash as the native payment rail.  
+Initial market: Mozambique (Maputo/Matola). Built as a continuation of V1 — same architecture, completed flows.
+
+---
+
+## V2 status (honest)
+
+**Working in code (deploy + `prisma db push` required):**
+- Auth, browse, sell with photos, listing edit, sold/pause
+- Settings (`/settings`) including seller BCH address
+- Orders with BCH payment URI + QR (non-custodial)
+- Demo payment mode (isolated; never claimed as real chain payment)
+- Payment verification provider layer (`BCH_INDEXER_URL`)
+- Offers (make / accept / reject / counter → order at offer price)
+- Messaging + notifications
+- Favorites toggle
+- Reviews after confirmed payment
+- Promotions + business subscription (BCH platform fee path)
+- Browse filters (city, condition, price, BCH)
+
+**Requires configuration for production:**
+- `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
+- Image persistence: Cloudinary vars (Vercel disk is ephemeral)
+- Real payment detection: `BCH_INDEXER_URL` / `BCH_API_KEY`
+- Platform fees: `PLATFORM_BCH_ADDRESS`
+
+**Not claimed:** automatic on-chain confirmation without a configured indexer.
 
 ---
 
@@ -32,11 +57,16 @@ Initial market: Mozambique (Maputo/Matola). Architecture ready for international
 cd bch-local
 cp .env.example .env
 
-# Required in .env:
+# Required:
 # DATABASE_URL="postgresql://..."
 # NEXTAUTH_SECRET="generate-a-long-random-string"
 # NEXTAUTH_URL="http://localhost:3000"
-# DEMO_PAYMENT_MODE="true"
+# DEMO_PAYMENT_MODE="true"   # isolate demo payments
+
+# Optional production:
+# CLOUDINARY_CLOUD_NAME / CLOUDINARY_UPLOAD_PRESET
+# PLATFORM_BCH_ADDRESS="bitcoincash:..."
+# BCH_INDEXER_URL / BCH_API_KEY
 
 npm install
 npx prisma db push
@@ -60,8 +90,10 @@ Open **http://localhost:3000**
 ### Marketplace
 - Homepage (hero, categories, revenue & business CTAs, footer)
 - Browse with search, category filters, sort (price / recent)
-- Listing detail with images, BCH equivalent, seller reputation
-- Multi-step **Sell** flow → publish → **promote upsell**
+- Listing detail with image gallery, BCH equivalent, seller reputation
+- Multi-step **Sell** flow with photo upload → publish → **promote upsell**
+- Seller listing management (edit, pause, mark sold)
+- Settings (`/settings` and `/profile/settings`) including BCH receiving address
 - Favorites
 - Public user profiles (`/u/[username]`)
 - Categories page
@@ -75,9 +107,13 @@ Open **http://localhost:3000**
 
 ### Transactions
 - Create order → unique payment request
-- BCH payment page (QR placeholder, address, amount, expiry, status)
+- BCH payment page (payment URI, QR from URI, copy address/URI, open wallet, expiry, status)
+- Payment verification provider layer (`BCH_INDEXER_URL`; demo never auto-confirms as real)
 - **Demo Payment Mode** (clearly labelled; advances status for testing only)
 - Order completion updates listing + seller transaction count
+- Offers: make / accept / reject / counter → order flow
+- Reviews after payment-confirmed orders only
+- Notifications (messages, offers, payments)
 
 ### Messaging
 - Start conversation from listing
@@ -90,6 +126,7 @@ Open **http://localhost:3000**
 - Admin moderation (hide listing, suspend user, dismiss)
 - Reputation badges (New / Established / Trusted / Verified)
 - Anti-scam copy on payment & messaging
+- Seller profiles with listings, ratings, reviews
 
 ### Revenue
 - Boost (3d) / Featured (7d) / Top Spot (14d)
@@ -215,3 +252,23 @@ The demo users only exist **after** `npm run db:seed` has been run against the s
 
 Built for Bitcoin Cash.  
 Not affiliated with Bitcoin Cash developers, organizations, or foundations.
+
+## API surface (Vercel Hobby ≤12 functions)
+
+Exactly **12** Serverless Functions:
+
+1. `api/auth/[...nextauth]`
+2. `api/auth/register`
+3. `api/listings/[[...id]]`
+4. `api/orders/[[...id]]` (includes reviews via `{ action: "review" }`)
+5. `api/messages/[[...id]]`
+6. `api/me/[[...path]]` → `profile` | `listings`
+7. `api/offers`
+8. `api/notifications`
+9. `api/favorites`
+10. `api/uploads`
+11. `api/revenue/[[...path]]` → `promotions` | `business`
+12. `api/admin/[[...path]]` → `stats` | `settings` | `moderate` | `reports`
+
+Public seller profile `/u/[username]` is a **server component** (no API).
+
