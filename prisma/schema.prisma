@@ -104,8 +104,20 @@ enum NotificationType {
   LISTING_EXPIRING
   PROMOTION_EXPIRING
   NEW_OFFER
+  OFFER_ACCEPTED
+  OFFER_REJECTED
+  OFFER_COUNTERED
   REPORT_RESOLUTION
   SYSTEM
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COUNTERED
+  EXPIRED
+  WITHDRAWN
 }
 
 model User {
@@ -138,6 +150,8 @@ model User {
   businessSubscription BusinessSubscription?
   notifications        Notification[]
   adminActions         AdminAction[]
+  offersMade           Offer[]         @relation("OffersMade")
+  offersReceived       Offer[]         @relation("OffersReceived")
 
   @@index([email])
   @@index([username])
@@ -161,6 +175,9 @@ model Profile {
   isBusiness      Boolean  @default(false)
   businessName    String?
   verifiedBusiness Boolean @default(false)
+  /// Seller's BCH receiving address (non-custodial). Used when creating orders.
+  bchAddress      String?
+  defaultDelivery String?  // PICKUP | DELIVERY | BOTH
   completedTx     Int      @default(0)
   completionRate  Float    @default(100)
   averageRating   Float    @default(0)
@@ -224,6 +241,7 @@ model Listing {
   conversations   Conversation[]
   orders          Order[]
   promotions      Promotion[]
+  offers          Offer[]
 
   @@index([sellerId])
   @@index([categoryId])
@@ -491,5 +509,32 @@ model BchRate {
   source    String
   createdAt DateTime @default(now())
 
+  @@index([createdAt])
+}
+
+/// Negotiation offers on a listing. Accepted offers feed into Order creation.
+model Offer {
+  id              String      @id @default(cuid())
+  listingId       String
+  listing         Listing     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId         String
+  buyer           User        @relation("OffersMade", fields: [buyerId], references: [id])
+  sellerId        String
+  seller          User        @relation("OffersReceived", fields: [sellerId], references: [id])
+  amountMzn       Decimal     @db.Decimal(12, 2)
+  message         String?
+  status          OfferStatus @default(PENDING)
+  parentOfferId   String?
+  parentOffer     Offer?      @relation("OfferChain", fields: [parentOfferId], references: [id])
+  counterOffers   Offer[]     @relation("OfferChain")
+  orderId         String?
+  expiresAt       DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
   @@index([createdAt])
 }
