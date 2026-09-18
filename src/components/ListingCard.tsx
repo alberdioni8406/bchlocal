@@ -126,11 +126,16 @@ export function ListingCard({
 
         <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-400">
           <span className="truncate">@{listing.seller.username}</span>
-          {listing.condition && (
-            <span className="shrink-0 ml-2 px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 border border-slate-100">
-              {conditionLabel[listing.condition] || listing.condition}
+          <span className="flex items-center gap-1 shrink-0 ml-2">
+            {listing.condition && (
+              <span className="px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 border border-slate-100">
+                {conditionLabel[listing.condition] || listing.condition}
+              </span>
+            )}
+            <span className="px-1.5 py-0.5 rounded bg-green-50 text-primary border border-green-100 font-medium">
+              BCH
             </span>
-          )}
+          </span>
         </div>
       </div>
     </Link>
