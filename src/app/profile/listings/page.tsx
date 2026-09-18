@@ -13,6 +13,7 @@ type Listing = {
   status: string;
   views: number;
   locationCity: string;
+  image?: string | null;
   promotion?: { type: string } | null;
 };
 
@@ -88,13 +89,73 @@ export default function MyListingsPage() {
                 {l.locationCity} · {l.views} views · {l.status}
                 {l.promotion ? ` · ${l.promotion.type}` : ""}
               </p>
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   href={`/listing/${l.id}`}
                   className="text-xs font-medium px-3 py-1.5 rounded-lg border border-border"
                 >
                   View
                 </Link>
+                <Link
+                  href={`/listing/${l.id}/edit`}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg border border-border"
+                >
+                  Edit
+                </Link>
+                {l.status === "ACTIVE" && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg border border-border"
+                    onClick={async () => {
+                      await fetch(`/api/listings/${l.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "SOLD" }),
+                      });
+                      setListings((prev) =>
+                        prev.map((x) => (x.id === l.id ? { ...x, status: "SOLD" } : x))
+                      );
+                    }}
+                  >
+                    Mark sold
+                  </button>
+                )}
+                {l.status === "ACTIVE" && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg border border-border"
+                    onClick={async () => {
+                      await fetch(`/api/listings/${l.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "PAUSED" }),
+                      });
+                      setListings((prev) =>
+                        prev.map((x) => (x.id === l.id ? { ...x, status: "PAUSED" } : x))
+                      );
+                    }}
+                  >
+                    Pause
+                  </button>
+                )}
+                {l.status === "PAUSED" && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg border border-border"
+                    onClick={async () => {
+                      await fetch(`/api/listings/${l.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "ACTIVE" }),
+                      });
+                      setListings((prev) =>
+                        prev.map((x) => (x.id === l.id ? { ...x, status: "ACTIVE" } : x))
+                      );
+                    }}
+                  >
+                    Reactivate
+                  </button>
+                )}
                 <Link
                   href={`/sell?promote=${l.id}`}
                   className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-900 text-white flex items-center gap-1"
