@@ -205,12 +205,101 @@ async function moderate(req: NextRequest, adminId: string) {
   }
 }
 
-export async function GET(_req: NextRequest, ctx: Ctx) {
-  const session = await requireAdmin();
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+const reportSchema = z.object({
+  reason: z.enum([
+    "SCAM",
+    "FAKE_ITEM",
+    "FAKE_PAYMENT",
+    "STOLEN_CONTENT",
+    "ILLEGAL_ITEM",
+    "HARASSMENT",
+    "OTHER",
+  ]),
+  description: z.string().max(1000).optional(),
+  listingId: z.string().optional(),
+  reportedUserId: z.string().optional(),
+});
 
+async function listReports() {
+  try {
+    const reports = await prisma.report.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: {
+        reporter: { select: { username: true } },
+        reportedUser: { select: { username: true, id: true } },
+      },
+    });
+
+    return NextResponse.json({
+      reports: reports.map((r) => ({
+        id: r.id,
+        reason: r.reason,
+        description: r.description,
+        status: r.status,
+        listingId: r.listingId,
+        reporter: r.reporter.username,
+        reportedUser: r.reportedUser?.username,
+        reportedUserId: r.reportedUser?.id,
+        createdAt: r.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ reports: [] });
+  }
+}
+
+async function createReport(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const data = reportSchema.parse(body);
+
+    if (!data.listingId && !data.reportedUserId) {
+      return NextResponse.json(
+        { error: "listingId or reportedUserId required" },
+        { status: 400 }
+      );
+    }
+
+    const report = await prisma.report.create({
+      data: {
+        reporterId: session.user.id,
+        reason: data.reason,
+        description: data.description,
+        listingId: data.listingId,
+        reportedUserId: data.reportedUserId,
+        status: "OPEN",
+      },
+    });
+
+    return NextResponse.json({ id: report.id, status: "OPEN" });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    }
+    console.error(err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
+export async function GET(_req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
   const segment = path?.[0] || "stats";
+
+  if (segment === "reports") {
+    const session = await requireAdmin();
+    if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return listReports();
+  }
+
+  const session = await requireAdmin();
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   if (segment === "stats") return stats();
   if (segment === "settings") return getSettings();
@@ -218,11 +307,16 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
-  const session = await requireAdmin();
-  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
   const { path } = await ctx.params;
   const segment = path?.[0];
+
+  // Any logged-in user can submit a report
+  if (segment === "reports") {
+    return createReport(req);
+  }
+
+  const session = await requireAdmin();
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   if (segment === "settings") return saveSettings(req);
   if (segment === "moderate") return moderate(req, session.user.id);
