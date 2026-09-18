@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Camera, ChevronRight } from "lucide-react";
+import { Camera, ChevronRight, Star, Trash2, ArrowLeft, ArrowRight } from "lucide-react";
+
+type DraftImage = { url: string; preview: string };
 
 const STEPS = [
   "Photos",
@@ -63,6 +65,68 @@ export default function SellPage() {
     deliveryOption: "BOTH",
     acceptsBch: true,
   });
+  const [images, setImages] = useState<DraftImage[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  async function onPickFiles(files: FileList | null) {
+    if (!files?.length) return;
+    setError("");
+    const remaining = 5 - images.length;
+    const batch = Array.from(files).slice(0, remaining);
+    if (!batch.length) {
+      setError("Maximum 5 photos per listing");
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      batch.forEach((f) => fd.append("files", f));
+      const res = await fetch("/api/uploads", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Upload failed");
+        return;
+      }
+      const urls: string[] = data.urls || (data.url ? [data.url] : []);
+      setImages((prev) => [
+        ...prev,
+        ...urls.map((url, i) => ({
+          url,
+          preview: URL.createObjectURL(batch[i] || batch[0]),
+        })),
+      ]);
+    } catch {
+      setError("Upload failed. Try a smaller JPEG or PNG.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removeImage(index: number) {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function moveImage(index: number, dir: -1 | 1) {
+    setImages((prev) => {
+      const next = [...prev];
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return prev;
+      const tmp = next[index];
+      next[index] = next[target];
+      next[target] = tmp;
+      return next;
+    });
+  }
+
+  function setPrimary(index: number) {
+    setImages((prev) => {
+      if (index === 0) return prev;
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      next.unshift(item);
+      return next;
+    });
+  }
 
   if (status === "unauthenticated") {
     return (
@@ -96,6 +160,7 @@ export default function SellPage() {
           locationArea: form.locationArea || undefined,
           deliveryOption: form.deliveryOption,
           acceptsBch: true,
+          imageUrls: images.map((img) => img.url),
         }),
       });
       const data = await res.json();
@@ -116,18 +181,32 @@ export default function SellPage() {
     if (!publishedId) return;
     setPromoting(true);
     try {
-      const res = await fetch("/api/promotions", {
+      const res = await fetch("/api/revenue/promotions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ listingId: publishedId, type }),
       });
       const data = await res.json();
-      if (res.ok) {
-        alert(data.message || "Promotion requested");
-        router.push(`/listing/${publishedId}`);
-      } else {
+      if (!res.ok) {
         alert(data.error || "Failed");
+        return;
       }
+      if (data.isDemo || data.status === "ACTIVE") {
+        alert(data.message || "Promotion activated (demo)");
+        router.push(`/listing/${publishedId}`);
+        return;
+      }
+      // Real path: show payment instructions
+      const params = new URLSearchParams({
+        promotionId: data.promotionId,
+        type: data.type,
+        priceMzn: String(data.priceMzn),
+        priceBch: String(data.priceBch || ""),
+        address: data.bchAddress || "",
+        uri: data.paymentUri || "",
+        listingId: publishedId,
+      });
+      router.push(`/promotions/pay?${params.toString()}`);
     } catch {
       alert("Error");
     } finally {
@@ -212,11 +291,59 @@ export default function SellPage() {
         {step === 0 && (
           <div>
             <p className="font-medium mb-3">Upload photos</p>
-            <button className="w-full aspect-[4/3] rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-slate-500 hover:border-primary/50 transition">
-              <Camera className="w-8 h-8" />
-              <span className="text-sm font-medium">Add photos (coming soon)</span>
-            </button>
-            <p className="mt-2 text-xs text-slate-400">You can publish without photos for now</p>
+            {images.length > 0 && (
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {images.map((img, i) => (
+                  <div key={img.url + i} className="relative aspect-[4/3] rounded-xl overflow-hidden border border-border bg-slate-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img.preview || img.url} alt="" className="w-full h-full object-cover" />
+                    {i === 0 && (
+                      <span className="absolute top-2 left-2 text-[10px] font-bold bg-primary text-white px-2 py-0.5 rounded-full">
+                        Primary
+                      </span>
+                    )}
+                    <div className="absolute bottom-2 left-2 right-2 flex gap-1 justify-end">
+                      <button type="button" onClick={() => moveImage(i, -1)} className="p-1.5 rounded-lg bg-white/90" aria-label="Move left">
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => moveImage(i, 1)} className="p-1.5 rounded-lg bg-white/90" aria-label="Move right">
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                      {i !== 0 && (
+                        <button type="button" onClick={() => setPrimary(i)} className="p-1.5 rounded-lg bg-white/90" aria-label="Make primary">
+                          <Star className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button type="button" onClick={() => removeImage(i)} className="p-1.5 rounded-lg bg-white/90 text-red-600" aria-label="Remove">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {images.length < 5 && (
+              <label className="w-full aspect-[4/3] rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 text-slate-500 hover:border-primary/50 transition cursor-pointer">
+                <Camera className="w-8 h-8" />
+                <span className="text-sm font-medium">
+                  {uploading ? "Uploading…" : "Add photos"}
+                </span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  multiple
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    onPickFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+            <p className="mt-2 text-xs text-slate-400">
+              Up to 5 photos. First photo is the primary marketplace image. You can publish without photos.
+            </p>
           </div>
         )}
 
@@ -366,6 +493,10 @@ export default function SellPage() {
 
         {step === 9 && (
           <div className="p-4 rounded-2xl border border-border bg-white space-y-2 text-sm">
+            {images[0] && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={images[0].preview || images[0].url} alt="" className="w-full aspect-[4/3] object-cover rounded-xl mb-2" />
+            )}
             <p className="font-semibold text-lg">{form.title || "Untitled"}</p>
             <p className="text-primary font-bold">
               {form.priceMzn
