@@ -9,12 +9,14 @@ function NewOrderContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const listingId = searchParams.get("listing");
+  const offerId = searchParams.get("offerId");
   const { status } = useSession();
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.push(`/auth/signin?callbackUrl=/orders/new?listing=${listingId}`);
+      const cb = `/orders/new?listing=${listingId || ""}${offerId ? `&offerId=${offerId}` : ""}`;
+      router.push(`/auth/signin?callbackUrl=${encodeURIComponent(cb)}`);
       return;
     }
     if (status !== "authenticated" || !listingId) return;
@@ -24,7 +26,10 @@ function NewOrderContent() {
         const res = await fetch("/api/orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ listingId }),
+          body: JSON.stringify({
+            listingId,
+            ...(offerId ? { offerId } : {}),
+          }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -37,7 +42,7 @@ function NewOrderContent() {
       }
     }
     create();
-  }, [status, listingId, router]);
+  }, [status, listingId, offerId, router]);
 
   if (error) {
     return (
