@@ -109,7 +109,18 @@ async function listListings(req: NextRequest) {
     return NextResponse.json({ listings: data, total, limit, offset });
   } catch (err) {
     console.error("Listings GET error:", err);
-    return NextResponse.json({ listings: [], total: 0, offline: true }, { status: 200 });
+    const detail =
+      err && typeof err === "object" && "message" in err
+        ? String((err as { message: string }).message).slice(0, 400)
+        : "unknown";
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: string }).code)
+        : undefined;
+    return NextResponse.json(
+      { listings: [], total: 0, offline: true, detail, code },
+      { status: 200 }
+    );
   }
 }
 
@@ -280,7 +291,10 @@ export async function POST(req: NextRequest) {
       process.env.NODE_ENV === "development" || process.env.DEBUG_LISTINGS === "true"
         ? message
         : "Unable to publish listing. Please check the required fields and try again.";
-    return NextResponse.json({ error: clientMessage }, { status: 500 });
+    return NextResponse.json(
+      { error: clientMessage, detail: message.slice(0, 400) },
+      { status: 500 }
+    );
   }
 }
 
