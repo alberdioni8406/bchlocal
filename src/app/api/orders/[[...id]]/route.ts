@@ -2,22 +2,103 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { mznToBch, generatePaymentRequestId, isDemoPaymentMode } from "@/lib/bch";
+import {
+  mznToBch,
+  generatePaymentRequestId,
+  isDemoPaymentMode,
+  buildBchPaymentUri,
+} from "@/lib/bch";
+import { verifyPaymentById } from "@/lib/bch-provider";
 import { z } from "zod";
 
 type Ctx = { params: Promise<{ id?: string[] }> };
 
-const createSchema = z.object({ listingId: z.string() });
+const createSchema = z.object({
+  listingId: z.string(),
+  offerId: z.string().optional(),
+});
 
-async function createOrder(req: NextRequest) {
+const reviewSchema = z.object({
+  action: z.literal("review"),
+  orderId: z.string(),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(1000).optional(),
+});
+
+/** Buyer review after payment confirmed — lives under orders to save a serverless function. */
+async function createReview(body: unknown) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const data = reviewSchema.parse(body);
+
+    const order = await prisma.order.findUnique({
+      where: { id: data.orderId },
+      include: { review: true },
+    });
+    if (!order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    if (order.buyerId !== session.user.id) {
+      return NextResponse.json({ error: "Only the buyer can leave this review" }, { status: 403 });
+    }
+    if (!["PAYMENT_CONFIRMED", "COMPLETED"].includes(order.status)) {
+      return NextResponse.json(
+        { error: "Reviews are only allowed after payment is confirmed" },
+        { status: 400 }
+      );
+    }
+    if (order.review) {
+      return NextResponse.json({ error: "Review already submitted" }, { status: 400 });
+    }
+
+    const review = await prisma.review.create({
+      data: {
+        orderId: order.id,
+        reviewerId: session.user.id,
+        revieweeId: order.sellerId,
+        rating: data.rating,
+        comment: data.comment?.trim() || null,
+      },
+    });
+
+    const stats = await prisma.review.aggregate({
+      where: { revieweeId: order.sellerId },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+    await prisma.profile.updateMany({
+      where: { userId: order.sellerId },
+      data: {
+        averageRating: stats._avg.rating || data.rating,
+        reviewCount: stats._count.rating,
+      },
+    });
+
+    return NextResponse.json({
+      id: review.id,
+      rating: review.rating,
+      comment: review.comment,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });
+    }
+    console.error("POST review via orders error:", err);
+    return NextResponse.json({ error: "Unable to submit review" }, { status: 500 });
+  }
+}
+
+async function createOrder(body: unknown) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { listingId } = createSchema.parse(body);
+    const { listingId, offerId } = createSchema.parse(body);
 
     const listing = await prisma.listing.findFirst({
       where: { id: listingId, status: "ACTIVE" },
@@ -31,11 +112,51 @@ async function createOrder(req: NextRequest) {
       return NextResponse.json({ error: "Cannot buy your own listing" }, { status: 400 });
     }
 
-    const priceBch = await mznToBch(Number(listing.priceMzn));
+    // If an accepted offer is provided, use that amount instead of list price
+    let priceMznValue = Number(listing.priceMzn);
+    let acceptedOfferId: string | null = null;
+    if (offerId) {
+      const offer = await prisma.offer.findFirst({
+        where: {
+          id: offerId,
+          listingId,
+          buyerId: session.user.id,
+          status: "ACCEPTED",
+        },
+      });
+      if (!offer) {
+        return NextResponse.json(
+          { error: "Accepted offer not found for this listing" },
+          { status: 400 }
+        );
+      }
+      priceMznValue = Number(offer.amountMzn);
+      acceptedOfferId = offer.id;
+    }
+
+    const priceBch = await mznToBch(priceMznValue);
     const paymentRequestId = generatePaymentRequestId(listingId);
     const expiresAt = new Date(Date.now() + 45 * 60 * 1000);
     const demo = isDemoPaymentMode();
-    const bchAddress = `bitcoincash:qp${paymentRequestId.slice(-20).replace(/[^a-z0-9]/g, "")}demo`;
+
+    // Prefer seller's real BCH address from profile (non-custodial).
+    // Fall back to a clearly labelled demo address only when DEMO_PAYMENT_MODE is on
+    // and the seller has not set an address yet.
+    const sellerAddress = listing.seller?.profile?.bchAddress?.trim() || null;
+    let bchAddress: string;
+    if (sellerAddress) {
+      bchAddress = sellerAddress;
+    } else if (demo) {
+      bchAddress = `bitcoincash:qp${paymentRequestId.slice(-20).replace(/[^a-z0-9]/g, "")}demo`;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "Seller has not set a BCH receiving address yet. Ask them to add one in Settings.",
+        },
+        { status: 400 }
+      );
+    }
 
     const order = await prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
@@ -44,7 +165,7 @@ async function createOrder(req: NextRequest) {
           sellerId: listing.sellerId,
           listingId: listing.id,
           status: "PENDING_PAYMENT",
-          priceMzn: listing.priceMzn,
+          priceMzn: priceMznValue,
           priceBch,
           bchAddress,
           paymentRequestId,
@@ -57,25 +178,41 @@ async function createOrder(req: NextRequest) {
           orderId: order.id,
           status: "PENDING",
           amountBch: priceBch,
-          amountMzn: listing.priceMzn,
+          amountMzn: priceMznValue,
           bchAddress,
           expiresAt,
           isDemo: demo,
         },
       });
 
+      if (acceptedOfferId) {
+        await tx.offer.update({
+          where: { id: acceptedOfferId },
+          data: { orderId: order.id },
+        });
+      }
+
       return order;
+    });
+
+    const paymentUri = buildBchPaymentUri({
+      address: bchAddress,
+      amountBch: priceBch,
+      label: "BCH Local",
+      message: listing.title.slice(0, 40),
     });
 
     return NextResponse.json({
       orderId: order.id,
       paymentRequestId,
-      priceMzn: Number(listing.priceMzn),
+      priceMzn: priceMznValue,
       priceBch,
       bchAddress,
+      paymentUri,
       expiresAt,
       isDemo: demo,
       listingTitle: listing.title,
+      fromOffer: Boolean(acceptedOfferId),
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -103,12 +240,23 @@ async function getOrder(id: string, userId: string) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
+    const priceBch = order.priceBch ? Number(order.priceBch) : null;
+    const paymentUri = order.bchAddress
+      ? buildBchPaymentUri({
+          address: order.bchAddress,
+          amountBch: priceBch,
+          label: "BCH Local",
+          message: order.listing.title.slice(0, 40),
+        })
+      : null;
+
     return NextResponse.json({
       id: order.id,
       status: order.status,
       priceMzn: Number(order.priceMzn),
-      priceBch: order.priceBch ? Number(order.priceBch) : null,
+      priceBch,
       bchAddress: order.bchAddress,
+      paymentUri,
       paymentRequestId: order.paymentRequestId,
       expiresAt: order.expiresAt,
       listingTitle: order.listing.title,
@@ -184,13 +332,32 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
+  const body = await req.json().catch(() => ({}));
+
+  if (body?.action === "review") {
+    return createReview(body);
+  }
+
   if (id?.[0]) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const body = await req.json();
+    if (body.action === "verify") {
+      const order = await prisma.order.findFirst({
+        where: {
+          id: id[0],
+          OR: [{ buyerId: session.user.id }, { sellerId: session.user.id }],
+        },
+        include: { payment: true },
+      });
+      if (!order?.payment) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const result = await verifyPaymentById(order.payment.id);
+      return NextResponse.json(result);
+    }
     return demoPayment(id[0], session.user.id, body.action);
   }
-  return createOrder(req);
+  return createOrder(body);
 }
