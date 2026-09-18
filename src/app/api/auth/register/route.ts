@@ -50,9 +50,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ id: user.id, username: user.username });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });
     }
-    console.error(err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error("Register error:", err);
+    const message =
+      err && typeof err === "object" && "message" in err
+        ? String((err as { message: string }).message)
+        : "Server error";
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: string }).code)
+        : undefined;
+    return NextResponse.json(
+      {
+        error: "Server error",
+        detail: message.slice(0, 400),
+        code,
+      },
+      { status: 500 }
+    );
   }
 }
