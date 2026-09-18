@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
   MapPin,
@@ -11,6 +12,7 @@ import {
   Heart,
   ShieldAlert,
   ChevronLeft,
+  Pencil,
 } from "lucide-react";
 
 type ListingDetail = {
@@ -28,6 +30,7 @@ type ListingDetail = {
   images: { url: string }[];
   category?: { nameEn: string } | null;
   seller: {
+    id?: string;
     username: string;
     displayName?: string | null;
     rating?: number | null;
@@ -35,6 +38,7 @@ type ListingDetail = {
     trustLevel?: string | null;
   };
   promotion?: { type: string } | null;
+  status?: string;
 };
 
 const DEMO: ListingDetail = {
@@ -70,8 +74,15 @@ function formatPrice(n: number) {
 export default function ListingPage() {
   const params = useParams();
   const id = params.id as string;
+  const { data: session } = useSession();
   const [listing, setListing] = useState<ListingDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeImage, setActiveImage] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const [offerAmount, setOfferAmount] = useState("");
+  const [offerMsg, setOfferMsg] = useState("");
+  const [offerBusy, setOfferBusy] = useState(false);
+  const [offerNote, setOfferNote] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -119,10 +130,10 @@ export default function ListingPage() {
       </div>
 
       <div className="relative aspect-[4/3] bg-slate-100 overflow-hidden">
-        {listing.images[0] ? (
+        {listing.images[activeImage] ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={listing.images[0].url}
+            src={listing.images[activeImage].url}
             alt={listing.title}
             className="w-full h-full object-cover"
           />
@@ -133,10 +144,27 @@ export default function ListingPage() {
         )}
         {listing.images.length > 1 && (
           <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-black/60 text-white text-xs font-medium">
-            1 / {listing.images.length}
+            {activeImage + 1} / {listing.images.length}
           </div>
         )}
       </div>
+      {listing.images.length > 1 && (
+        <div className="px-4 pt-3 flex gap-2 overflow-x-auto">
+          {listing.images.map((img, i) => (
+            <button
+              key={img.url + i}
+              type="button"
+              onClick={() => setActiveImage(i)}
+              className={`shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 ${
+                i === activeImage ? "border-primary" : "border-transparent"
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.url} alt="" className="w-full h-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="px-4 py-6 space-y-6">
         <div>
@@ -176,7 +204,24 @@ export default function ListingPage() {
           <MapPin className="w-4 h-4 text-primary" />
           {listing.locationCity}
           {listing.locationArea ? ` · ${listing.locationArea}` : ""}
+          <span className="text-slate-400">·</span>
+          <span>
+            {listing.deliveryOption === "BOTH"
+              ? "Pickup or delivery"
+              : listing.deliveryOption === "DELIVERY"
+                ? "Delivery"
+                : "Pickup"}
+          </span>
         </div>
+
+        {session?.user?.id && session.user.id === listing.seller.id && (
+          <Link
+            href={`/listing/${listing.id}/edit`}
+            className="inline-flex items-center gap-2 text-sm font-medium text-primary"
+          >
+            <Pencil className="w-4 h-4" /> Edit listing
+          </Link>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-3">
           <Link
@@ -194,11 +239,94 @@ export default function ListingPage() {
           </Link>
         </div>
 
+        {session?.user?.id && session.user.id !== listing.seller.id && (
+          <div className="rounded-2xl border border-border p-4 space-y-3">
+            <p className="font-semibold text-slate-900">Make an offer</p>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                value={offerAmount}
+                onChange={(e) => setOfferAmount(e.target.value)}
+                placeholder="Amount in MZN"
+                className="flex-1 h-11 px-3 rounded-xl border border-border"
+              />
+              <button
+                type="button"
+                disabled={offerBusy || !offerAmount}
+                onClick={async () => {
+                  setOfferBusy(true);
+                  setOfferNote("");
+                  try {
+                    const res = await fetch("/api/offers", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        listingId: listing.id,
+                        amountMzn: parseFloat(offerAmount),
+                        message: offerMsg || undefined,
+                      }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      setOfferNote(data.error || "Failed");
+                      return;
+                    }
+                    setOfferNote("Offer sent to the seller");
+                    setOfferAmount("");
+                    setOfferMsg("");
+                  } catch {
+                    setOfferNote("Something went wrong");
+                  } finally {
+                    setOfferBusy(false);
+                  }
+                }}
+                className="h-11 px-4 rounded-xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-50"
+              >
+                {offerBusy ? "…" : "Send"}
+              </button>
+            </div>
+            <input
+              value={offerMsg}
+              onChange={(e) => setOfferMsg(e.target.value)}
+              placeholder="Optional message"
+              className="w-full h-11 px-3 rounded-xl border border-border text-sm"
+            />
+            {offerNote && <p className="text-sm text-slate-600">{offerNote}</p>}
+          </div>
+        )}
+
         <div className="flex gap-4">
-          <button className="flex items-center gap-2 text-sm text-slate-600">
-            <Heart className="w-5 h-5" /> Save
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const res = await fetch("/api/favorites", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ listingId: listing.id }),
+                });
+                if (res.ok) setSaved((s) => !s);
+              } catch {
+                /* ignore */
+              }
+            }}
+            className="flex items-center gap-2 text-sm text-slate-600"
+          >
+            <Heart className={`w-5 h-5 ${saved ? "fill-red-500 text-red-500" : ""}`} />
+            {saved ? "Saved" : "Save"}
           </button>
-          <button className="flex items-center gap-2 text-sm text-slate-600">
+          <button
+            type="button"
+            onClick={() => {
+              const url = window.location.href;
+              if (navigator.share) {
+                navigator.share({ title: listing.title, url }).catch(() => {});
+              } else {
+                navigator.clipboard.writeText(url);
+              }
+            }}
+            className="flex items-center gap-2 text-sm text-slate-600"
+          >
             <Share2 className="w-5 h-5" /> Share
           </button>
         </div>
