@@ -13,6 +13,8 @@ import {
   Star,
   ChevronRight,
   Rocket,
+  Bell,
+  Tag,
 } from "lucide-react";
 
 export default function ProfilePage() {
@@ -37,8 +39,10 @@ export default function ProfilePage() {
 
   const menu = [
     { href: "/profile/listings", label: "My Listings", icon: Package, desc: "Manage & promote" },
+    { href: "/profile/offers", label: "Offers", icon: Tag, desc: "Negotiate prices" },
     { href: "/favorites", label: "Favorites", icon: Heart, desc: "Saved listings" },
     { href: "/messages", label: "Messages", icon: MessageCircle, desc: "Buyer & seller chats" },
+    { href: "/notifications", label: "Notifications", icon: Bell, desc: "Offers, payments, messages" },
     { href: "/business", label: "Business Profile", icon: Building2, desc: "Upgrade for more reach" },
     { href: "/profile/settings", label: "Settings", icon: Settings, desc: "Account & preferences" },
   ];
