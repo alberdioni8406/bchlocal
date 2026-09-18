@@ -33,7 +33,7 @@ export default function AdminReportsPage() {
 
   useEffect(() => {
     if (session?.user?.role === "ADMIN") {
-      fetch("/api/reports")
+      fetch("/api/admin/reports")
         .then((r) => r.json())
         .then((d) => {
           setReports(d.reports || []);
