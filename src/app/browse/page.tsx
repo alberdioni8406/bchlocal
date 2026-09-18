@@ -15,6 +15,11 @@ function BrowseContent() {
   const [q, setQ] = useState(initialQ);
   const [sort, setSort] = useState("recent");
   const [total, setTotal] = useState(0);
+  const [city, setCity] = useState("");
+  const [condition, setCondition] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [bchOnly, setBchOnly] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -24,6 +29,11 @@ function BrowseContent() {
         if (category) params.set("category", category);
         if (q) params.set("q", q);
         if (sort) params.set("sort", sort);
+        if (city) params.set("city", city);
+        if (condition) params.set("condition", condition);
+        if (minPrice) params.set("minPrice", minPrice);
+        if (maxPrice) params.set("maxPrice", maxPrice);
+        if (bchOnly) params.set("acceptsBch", "true");
         params.set("limit", "24");
         const res = await fetch(`/api/listings?${params}`);
         const data = await res.json();
@@ -37,7 +47,7 @@ function BrowseContent() {
       }
     }
     load();
-  }, [category, sort, q]);
+  }, [category, sort, q, city, condition, minPrice, maxPrice, bchOnly]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -80,7 +90,7 @@ function BrowseContent() {
         </select>
       </div>
 
-      <form onSubmit={handleSearch} className="mb-5">
+      <form onSubmit={handleSearch} className="mb-4">
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input
@@ -91,6 +101,56 @@ function BrowseContent() {
           />
         </div>
       </form>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        <select
+          value={city}
+          onChange={(e) => setCity(e.target.value)}
+          className="h-10 px-2 rounded-xl border border-border bg-white text-sm"
+        >
+          <option value="">Any city</option>
+          {["Maputo", "Matola", "Beira", "Nampula", "Chimoio", "Other"].map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <select
+          value={condition}
+          onChange={(e) => setCondition(e.target.value)}
+          className="h-10 px-2 rounded-xl border border-border bg-white text-sm"
+        >
+          <option value="">Any condition</option>
+          <option value="NEW">New</option>
+          <option value="LIKE_NEW">Like new</option>
+          <option value="GOOD">Good</option>
+          <option value="FAIR">Fair</option>
+          <option value="FOR_PARTS">For parts</option>
+        </select>
+        <input
+          type="number"
+          value={minPrice}
+          onChange={(e) => setMinPrice(e.target.value)}
+          placeholder="Min MZN"
+          className="h-10 px-2 rounded-xl border border-border text-sm"
+        />
+        <input
+          type="number"
+          value={maxPrice}
+          onChange={(e) => setMaxPrice(e.target.value)}
+          placeholder="Max MZN"
+          className="h-10 px-2 rounded-xl border border-border text-sm"
+        />
+      </div>
+      <label className="inline-flex items-center gap-2 text-sm text-slate-700 mb-5">
+        <input
+          type="checkbox"
+          checked={bchOnly}
+          onChange={(e) => setBchOnly(e.target.checked)}
+          className="rounded border-border"
+        />
+        BCH accepted only
+      </label>
 
       <div className="flex gap-2 overflow-x-auto hide-scrollbar mb-6 pb-1">
         {categoryChips.map(({ slug, label }) => {
