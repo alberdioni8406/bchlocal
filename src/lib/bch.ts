@@ -51,6 +51,33 @@ export function generatePaymentRequestId(orderId: string): string {
 }
 
 /**
+ * Build a BIP21-style Bitcoin Cash payment URI.
+ * amount is in BCH (not satoshis). label/message are optional.
+ * Example: bitcoincash:q...?...amount=0.001&label=BCH%20Local
+ */
+export function buildBchPaymentUri(opts: {
+  address: string;
+  amountBch?: number | null;
+  label?: string;
+  message?: string;
+}): string {
+  let address = opts.address.trim();
+  // Normalize: strip existing scheme if present so we can re-attach cleanly
+  if (address.toLowerCase().startsWith("bitcoincash:")) {
+    address = address.slice("bitcoincash:".length);
+  }
+  const params = new URLSearchParams();
+  if (opts.amountBch != null && opts.amountBch > 0) {
+    // Avoid scientific notation; max 8 decimal places for BCH
+    params.set("amount", Number(opts.amountBch).toFixed(8).replace(/\.?0+$/, ""));
+  }
+  if (opts.label) params.set("label", opts.label);
+  if (opts.message) params.set("message", opts.message);
+  const qs = params.toString();
+  return qs ? `bitcoincash:${address}?${qs}` : `bitcoincash:${address}`;
+}
+
+/**
  * In real integration, this would poll a BCH indexer / websocket for the address
  * or payment request. Demo mode simulates detection after a delay only when
  * explicitly triggered by admin/demo controls — never auto-confirm on button click alone.
