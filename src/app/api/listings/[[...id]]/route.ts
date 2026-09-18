@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -39,6 +40,7 @@ async function listListings(req: NextRequest) {
     }
     if (condition) where.condition = condition;
     if (type) where.listingType = type;
+    if (searchParams.get("acceptsBch") === "true") where.acceptsBch = true;
 
     let orderBy: Record<string, string> = { publishedAt: "desc" };
     if (sort === "price_asc") orderBy = { priceMzn: "asc" };
@@ -220,16 +222,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid category" }, { status: 400 });
     }
 
+    // Ensure seller still exists (session can outlive a deleted user)
+    const seller = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, isSuspended: true, isBlocked: true },
+    });
+    if (!seller || seller.isSuspended || seller.isBlocked) {
+      return NextResponse.json({ error: "Account not allowed to list" }, { status: 403 });
+    }
+
     const listing = await prisma.listing.create({
       data: {
-        title: data.title,
-        description: data.description,
-        priceMzn: data.priceMzn,
+        title: data.title.trim(),
+        description: data.description.trim(),
+        priceMzn: new Prisma.Decimal(data.priceMzn),
         condition: data.condition,
         listingType: data.listingType,
         status: "ACTIVE",
-        locationCity: data.locationCity,
-        locationArea: data.locationArea,
+        locationCity: data.locationCity.trim(),
+        locationArea: data.locationArea?.trim() || null,
         deliveryOption: data.deliveryOption,
         acceptsBch: data.acceptsBch,
         publishedAt: new Date(),
@@ -251,9 +262,139 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ id: listing.id, title: listing.title });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid input", details: err.errors }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid input", details: err.errors },
+        { status: 400 }
+      );
     }
+    // Surface Prisma / DB diagnostics in logs; keep client message safe
     console.error("Create listing error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    const message =
+      err instanceof Prisma.PrismaClientKnownRequestError
+        ? `Database error (${err.code})`
+        : err instanceof Error
+          ? err.message
+          : "Unknown error";
+    // In production still return generic message to the client
+    const clientMessage =
+      process.env.NODE_ENV === "development" || process.env.DEBUG_LISTINGS === "true"
+        ? message
+        : "Unable to publish listing. Please check the required fields and try again.";
+    return NextResponse.json({ error: clientMessage }, { status: 500 });
+  }
+}
+
+const updateSchema = z.object({
+  title: z.string().min(3).max(120).optional(),
+  description: z.string().min(10).max(5000).optional(),
+  priceMzn: z.number().positive().optional(),
+  categorySlug: z.string().optional(),
+  condition: z.enum(["NEW", "LIKE_NEW", "GOOD", "FAIR", "FOR_PARTS"]).optional(),
+  listingType: z.enum(["GOODS", "SERVICE", "JOB", "DIGITAL"]).optional(),
+  locationCity: z.string().optional(),
+  locationArea: z.string().optional().nullable(),
+  deliveryOption: z.enum(["PICKUP", "DELIVERY", "BOTH"]).optional(),
+  acceptsBch: z.boolean().optional(),
+  status: z.enum(["ACTIVE", "PAUSED", "SOLD", "DELETED"]).optional(),
+  imageUrls: z.array(z.string()).max(5).optional(),
+});
+
+export async function PATCH(req: NextRequest, ctx: Ctx) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = await ctx.params;
+    const listingId = id?.[0];
+    if (!listingId) {
+      return NextResponse.json({ error: "Listing id required" }, { status: 400 });
+    }
+
+    const existing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      select: { id: true, sellerId: true, status: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (existing.sellerId !== session.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const data = updateSchema.parse(await req.json());
+
+    let categoryId: string | undefined;
+    if (data.categorySlug) {
+      const category = await prisma.category.findUnique({
+        where: { slug: data.categorySlug },
+      });
+      if (!category) {
+        return NextResponse.json({ error: "Invalid category" }, { status: 400 });
+      }
+      categoryId = category.id;
+    }
+
+    const listing = await prisma.$transaction(async (tx) => {
+      if (data.imageUrls) {
+        await tx.listingImage.deleteMany({ where: { listingId } });
+        if (data.imageUrls.length) {
+          await tx.listingImage.createMany({
+            data: data.imageUrls.map((url, i) => ({
+              listingId,
+              url,
+              sortOrder: i,
+              isPrimary: i === 0,
+            })),
+          });
+        }
+      }
+
+      return tx.listing.update({
+        where: { id: listingId },
+        data: {
+          ...(data.title !== undefined ? { title: data.title.trim() } : {}),
+          ...(data.description !== undefined
+            ? { description: data.description.trim() }
+            : {}),
+          ...(data.priceMzn !== undefined
+            ? { priceMzn: new Prisma.Decimal(data.priceMzn) }
+            : {}),
+          ...(data.condition !== undefined ? { condition: data.condition } : {}),
+          ...(data.listingType !== undefined ? { listingType: data.listingType } : {}),
+          ...(data.locationCity !== undefined
+            ? { locationCity: data.locationCity.trim() }
+            : {}),
+          ...(data.locationArea !== undefined
+            ? { locationArea: data.locationArea?.trim() || null }
+            : {}),
+          ...(data.deliveryOption !== undefined
+            ? { deliveryOption: data.deliveryOption }
+            : {}),
+          ...(data.acceptsBch !== undefined ? { acceptsBch: data.acceptsBch } : {}),
+          ...(data.status !== undefined ? { status: data.status } : {}),
+          ...(categoryId ? { categoryId } : {}),
+        },
+      });
+    });
+
+    return NextResponse.json({
+      id: listing.id,
+      title: listing.title,
+      status: listing.status,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid input", details: err.errors },
+        { status: 400 }
+      );
+    }
+    console.error("Update listing error:", err);
+    return NextResponse.json(
+      { error: "Unable to update listing. Please try again." },
+      { status: 500 }
+    );
   }
 }
