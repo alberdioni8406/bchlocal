@@ -53,20 +53,34 @@ export async function POST(req: NextRequest) {
     }
     const { listingId } = schema.parse(await req.json());
 
-    await prisma.favorite.upsert({
+    const existing = await prisma.favorite.findUnique({
       where: {
         userId_listingId: { userId: session.user.id, listingId },
       },
-      update: {},
-      create: { userId: session.user.id, listingId },
     });
 
-    await prisma.listing.update({
-      where: { id: listingId },
-      data: { favoritesCount: { increment: 1 } },
-    }).catch(() => {});
+    if (existing) {
+      await prisma.favorite.delete({ where: { id: existing.id } });
+      await prisma.listing
+        .update({
+          where: { id: listingId },
+          data: { favoritesCount: { decrement: 1 } },
+        })
+        .catch(() => {});
+      return NextResponse.json({ ok: true, favorited: false });
+    }
 
-    return NextResponse.json({ ok: true });
+    await prisma.favorite.create({
+      data: { userId: session.user.id, listingId },
+    });
+    await prisma.listing
+      .update({
+        where: { id: listingId },
+        data: { favoritesCount: { increment: 1 } },
+      })
+      .catch(() => {});
+
+    return NextResponse.json({ ok: true, favorited: true });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
