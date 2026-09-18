@@ -27,7 +27,12 @@ function publicBaseUrl(): string {
   ).replace(/\/$/, "");
 }
 
-/** Store one image file. Prefer Cloudinary when configured; otherwise local public/uploads. */
+/**
+ * Store one image.
+ * 1) Cloudinary when CLOUDINARY_CLOUD_NAME + CLOUDINARY_UPLOAD_PRESET are set (recommended on Vercel)
+ * 2) On Vercel without Cloudinary: store as data URL (works for demo; prefer Cloudinary for real use)
+ * 3) Local disk public/uploads (dev only)
+ */
 export async function storeListingImage(file: File): Promise<string> {
   if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
     throw new Error("Unsupported file type. Use JPEG, PNG, WebP, or GIF.");
@@ -58,6 +63,21 @@ export async function storeListingImage(file: File): Promise<string> {
     return url;
   }
 
+  // Vercel serverless has no writable public/ directory
+  const onVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (onVercel) {
+    // Cap data-URL size for DB safety (~1.5MB decoded)
+    if (file.size > 1.5 * 1024 * 1024) {
+      throw new Error(
+        "On Vercel without Cloudinary, images must be under 1.5MB. Set CLOUDINARY_CLOUD_NAME and CLOUDINARY_UPLOAD_PRESET, or use a smaller photo."
+      );
+    }
+    const buf = Buffer.from(await file.arrayBuffer());
+    const b64 = buf.toString("base64");
+    return `data:${file.type};base64,${b64}`;
+  }
+
+  // Local development: write under public/uploads
   const buf = Buffer.from(await file.arrayBuffer());
   const name = `${Date.now()}-${randomBytes(6).toString("hex")}.${extensionForType(file.type)}`;
   const dir = path.join(process.cwd(), "public", "uploads", "listings");
