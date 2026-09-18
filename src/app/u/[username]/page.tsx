@@ -1,59 +1,71 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Star, MapPin, Package } from "lucide-react";
+import { prisma } from "@/lib/prisma";
 
-type Profile = {
-  username: string;
-  displayName?: string | null;
-  bio?: string | null;
-  locationCity?: string | null;
-  trustLevel?: string | null;
-  averageRating?: number | null;
-  completedTx?: number | null;
-  isBusiness?: boolean;
-  verifiedBusiness?: boolean;
-  memberSince?: string;
-  listings: {
-    id: string;
-    title: string;
-    priceMzn: number;
-    locationCity: string;
-  }[];
-};
+type Props = { params: Promise<{ username: string }> };
 
-export default function UserProfilePage() {
-  const params = useParams();
-  const username = params.username as string;
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+export default async function UserProfilePage({ params }: Props) {
+  const { username } = await params;
 
-  useEffect(() => {
-    fetch(`/api/users/${username}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (!d.error) setProfile(d);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [username]);
+  const user = await prisma.user.findUnique({
+    where: { username },
+    include: {
+      profile: true,
+      listings: {
+        where: { status: "ACTIVE" },
+        orderBy: { publishedAt: "desc" },
+        take: 20,
+        include: {
+          images: { where: { isPrimary: true }, take: 1 },
+        },
+      },
+      reviewsReceived: {
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: {
+          reviewer: {
+            select: {
+              username: true,
+              profile: { select: { displayName: true } },
+            },
+          },
+        },
+      },
+    },
+  });
 
-  if (loading) {
-    return <div className="p-8 text-center text-slate-500">Loading...</div>;
-  }
+  if (!user || user.isSuspended) notFound();
 
-  if (!profile) {
-    return (
-      <div className="p-8 text-center">
-        <p>User not found</p>
-        <Link href="/browse" className="text-primary underline mt-2 inline-block">
-          Browse
-        </Link>
-      </div>
-    );
-  }
+  const profile = {
+    username: user.username,
+    displayName: user.profile?.displayName,
+    avatarUrl: user.profile?.avatarUrl,
+    bio: user.profile?.bio,
+    locationCity: user.profile?.locationCity,
+    trustLevel: user.profile?.trustLevel,
+    averageRating: user.profile?.averageRating,
+    reviewCount: user.profile?.reviewCount,
+    completedTx: user.profile?.completedTx,
+    isBusiness: user.profile?.isBusiness,
+    verifiedBusiness: user.profile?.verifiedBusiness,
+    listings: user.listings.map((l) => ({
+      id: l.id,
+      title: l.title,
+      priceMzn: Number(l.priceMzn),
+      locationCity: l.locationCity,
+      image: l.images[0]?.url || null,
+    })),
+    reviews: user.reviewsReceived.map((r) => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      reviewer: {
+        username: r.reviewer.username,
+        displayName: r.reviewer.profile?.displayName,
+      },
+    })),
+  };
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6">
@@ -96,9 +108,7 @@ export default function UserProfilePage() {
         </p>
       )}
 
-      {profile.bio && (
-        <p className="text-sm text-slate-700 mb-6">{profile.bio}</p>
-      )}
+      {profile.bio && <p className="text-sm text-slate-700 mb-6">{profile.bio}</p>}
 
       <h2 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
         <Package className="w-4 h-4" /> Listings
@@ -112,18 +122,51 @@ export default function UserProfilePage() {
             <Link
               key={l.id}
               href={`/listing/${l.id}`}
-              className="block p-3 rounded-xl border border-border bg-white hover:border-primary/30"
+              className="flex gap-3 p-3 rounded-xl border border-border bg-white hover:border-primary/30"
             >
-              <p className="font-medium text-slate-900 line-clamp-1">{l.title}</p>
-              <p className="text-sm text-primary font-semibold">
-                {new Intl.NumberFormat("pt-MZ", {
-                  style: "currency",
-                  currency: "MZN",
-                  maximumFractionDigits: 0,
-                }).format(l.priceMzn)}
-              </p>
+              <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden shrink-0">
+                {l.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={l.image} alt="" className="w-full h-full object-cover" />
+                ) : null}
+              </div>
+              <div className="min-w-0">
+                <p className="font-medium text-slate-900 line-clamp-1">{l.title}</p>
+                <p className="text-sm text-primary font-semibold">
+                  {new Intl.NumberFormat("pt-MZ", {
+                    style: "currency",
+                    currency: "MZN",
+                    maximumFractionDigits: 0,
+                  }).format(l.priceMzn)}
+                </p>
+                <p className="text-xs text-slate-500">{l.locationCity}</p>
+              </div>
             </Link>
           ))}
+        </div>
+      )}
+
+      {profile.reviews.length > 0 && (
+        <div className="mt-8">
+          <h2 className="font-semibold text-slate-900 mb-3">
+            Reviews {profile.reviewCount ? `(${profile.reviewCount})` : ""}
+          </h2>
+          <div className="space-y-3">
+            {profile.reviews.map((r) => (
+              <div key={r.id} className="p-3 rounded-xl border border-border bg-white">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="flex items-center gap-1 font-medium">
+                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    {r.rating}
+                  </span>
+                  <span className="text-slate-500">@{r.reviewer.username}</span>
+                </div>
+                {r.comment && (
+                  <p className="text-sm text-slate-700 mt-1">{r.comment}</p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
