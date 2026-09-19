@@ -125,7 +125,7 @@ async function postPromotion(req: NextRequest) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
     console.error("Promotion error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: "Server error", detail: err instanceof Error ? err.message.slice(0, 500) : "unknown" }, { status: 500 });
   }
 }
 
@@ -199,7 +199,7 @@ async function patchPromotion(req: NextRequest) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
     console.error("Promotion PATCH error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: "Server error", detail: err instanceof Error ? err.message.slice(0, 500) : "unknown" }, { status: 500 });
   }
 }
 
@@ -268,8 +268,9 @@ async function getBusiness() {
       priceBch,
     });
   } catch (err) {
-    console.error("GET business error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error(err);
+    const detail = err instanceof Error ? err.message.slice(0, 500) : "unknown";
+    return NextResponse.json({ error: "Server error", detail }, { status: 500 });
   }
 }
 
@@ -374,7 +375,18 @@ async function postBusiness() {
     });
   } catch (err) {
     console.error("POST business error:", err);
-    return NextResponse.json({ error: "Unable to start subscription" }, { status: 500 });
+    const detail =
+      err && typeof err === "object" && "message" in err
+        ? String((err as { message: string }).message).slice(0, 500)
+        : "unknown";
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: string }).code)
+        : undefined;
+    return NextResponse.json(
+      { error: "Unable to start subscription", detail, code },
+      { status: 500 }
+    );
   }
 }
 
