@@ -378,7 +378,31 @@ export default function ListingPage() {
               Never send BCH outside the official order/payment flow. If someone
               asks you to pay differently, report them.
             </p>
-            <button className="mt-2 text-amber-700 font-medium underline">
+            <button
+              type="button"
+              className="mt-2 text-amber-700 font-medium underline"
+              onClick={async () => {
+                try {
+                  const res = await fetch("/api/admin/reports", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      listingId: id,
+                      reason: "OTHER",
+                      description: "Reported from listing page",
+                    }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) {
+                    alert(data.error || data.detail || "Unable to report");
+                    return;
+                  }
+                  alert("Report submitted. Thank you.");
+                } catch {
+                  alert("Unable to report");
+                }
+              }}
+            >
               Report listing
             </button>
           </div>
