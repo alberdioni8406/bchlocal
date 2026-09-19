@@ -156,12 +156,42 @@ export default function MyListingsPage() {
                     Reactivate
                   </button>
                 )}
-                <Link
-                  href={`/sell?promote=${l.id}`}
+                <button
+                  type="button"
                   className="text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-900 text-white flex items-center gap-1"
+                  onClick={async () => {
+                    try {
+                      const res = await fetch("/api/revenue/promotions", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ listingId: l.id, type: "BOOST" }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        alert(data.error || data.detail || "Unable to promote");
+                        return;
+                      }
+                      if (data.isDemo || data.status === "ACTIVE") {
+                        alert(data.message || "Boost activated (demo)");
+                        return;
+                      }
+                      const params = new URLSearchParams({
+                        promotionId: data.promotionId || "",
+                        type: data.type || "BOOST",
+                        priceMzn: String(data.priceMzn || ""),
+                        priceBch: String(data.priceBch || ""),
+                        address: data.bchAddress || "",
+                        uri: data.paymentUri || "",
+                        listingId: l.id,
+                      });
+                      router.push(`/promotions/pay?${params.toString()}`);
+                    } catch {
+                      alert("Unable to promote");
+                    }
+                  }}
                 >
                   <Rocket className="w-3 h-3" /> Promote
-                </Link>
+                </button>
               </div>
             </div>
           ))}
