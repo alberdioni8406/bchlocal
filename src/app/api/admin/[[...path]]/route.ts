@@ -284,7 +284,12 @@ async function createReport(req: NextRequest) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
     console.error(err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    const detail = err instanceof Error ? err.message.slice(0, 500) : "unknown";
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: string }).code)
+        : undefined;
+    return NextResponse.json({ error: "Server error", detail, code }, { status: 500 });
   }
 }
 
