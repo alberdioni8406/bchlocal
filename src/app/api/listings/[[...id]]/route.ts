@@ -209,7 +209,6 @@ async function getListing(id: string) {
         trustLevel: listing.seller.profile?.trustLevel,
         isBusiness: listing.seller.profile?.isBusiness,
         verifiedBusiness: listing.seller.profile?.verifiedBusiness,
-        isBusiness: listing.seller.profile?.isBusiness,
         avatarUrl: listing.seller.profile?.avatarUrl,
         memberSince: listing.seller.profile?.createdAt,
       },
