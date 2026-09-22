@@ -12,6 +12,8 @@ export default function BusinessPage() {
   const [priceMzn, setPriceMzn] = useState(500);
   const [priceBch, setPriceBch] = useState<number | null>(null);
   const [active, setActive] = useState(false);
+  const [entitlements, setEntitlements] = useState<string[]>([]);
+  const [endsAt, setEndsAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -24,6 +26,8 @@ export default function BusinessPage() {
         if (d.priceMzn) setPriceMzn(d.priceMzn);
         if (d.priceBch != null) setPriceBch(d.priceBch);
         setActive(Boolean(d.active));
+        if (Array.isArray(d.entitlements)) setEntitlements(d.entitlements);
+        if (d.subscription?.endsAt) setEndsAt(d.subscription.endsAt);
       })
       .catch(() => {});
   }, [status]);
@@ -76,8 +80,26 @@ export default function BusinessPage() {
       </div>
 
       {active && (
-        <div className="mb-6 p-4 rounded-2xl bg-green-50 border border-green-200 text-sm text-green-900">
-          Your business subscription is active.
+        <div className="mb-6 p-4 rounded-2xl bg-green-50 border border-green-200 text-sm text-green-900 space-y-2">
+          <p className="font-semibold">Your business subscription is active.</p>
+          {endsAt && (
+            <p className="text-green-800">
+              Renews / expires {new Date(endsAt).toLocaleDateString("pt-MZ")}
+            </p>
+          )}
+          <p>Unlocked on your profile:</p>
+          <ul className="space-y-1">
+            {(entitlements.length
+              ? entitlements
+              : [
+                  "Verified Business badge on profile and listings",
+                  "Higher placement among organic listings",
+                  "Shop-style public profile",
+                ]
+            ).map((item) => (
+              <li key={item}>• {item}</li>
+            ))}
+          </ul>
         </div>
       )}
       {message && (
