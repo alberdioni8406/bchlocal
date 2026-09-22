@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { createNotification } from "@/lib/notifications";
+import { rateLimit } from "@/lib/rate-limit";
 
 const createSchema = z.object({
   listingId: z.string(),
@@ -76,6 +77,17 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const limited = rateLimit({
+      key: `offers:${session.user.id}`,
+      limit: 30,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "Too many offer actions. Please wait a moment." },
+        { status: 429 }
+      );
     }
     const body = await req.json();
 
