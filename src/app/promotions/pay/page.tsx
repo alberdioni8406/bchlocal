@@ -16,6 +16,9 @@ function PayContent() {
   const uri = params.get("uri");
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoDone, setDemoDone] = useState(false);
+  const [demoError, setDemoError] = useState("");
 
   useEffect(() => {
     const payload = uri || address;
@@ -108,12 +111,57 @@ function PayContent() {
         immediately without real chain settlement.
       </p>
 
+      {type === "BUSINESS" && !demoDone && (
+        <button
+          type="button"
+          disabled={demoBusy}
+          onClick={async () => {
+            setDemoBusy(true);
+            setDemoError("");
+            try {
+              const res = await fetch("/api/revenue/business", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "activate_demo" }),
+              });
+              const data = await res.json();
+              if (!res.ok) {
+                setDemoError(data.error || "Could not activate");
+                return;
+              }
+              setDemoDone(true);
+            } catch {
+              setDemoError("Something went wrong");
+            } finally {
+              setDemoBusy(false);
+            }
+          }}
+          className="mt-6 w-full h-11 rounded-xl bg-primary text-white font-semibold disabled:opacity-60"
+        >
+          {demoBusy ? "Activating…" : "Activate in demo mode"}
+        </button>
+      )}
+      {demoDone && (
+        <p className="mt-4 text-sm text-green-700 font-medium">
+          Business plan activated. Your Verified Business badge is now on your profile.
+        </p>
+      )}
+      {demoError && <p className="mt-3 text-sm text-red-600">{demoError}</p>}
+
       {listingId && (
         <Link
           href={`/listing/${listingId}`}
           className="mt-6 inline-flex h-11 px-5 items-center rounded-xl border border-border font-medium"
         >
           Back to listing
+        </Link>
+      )}
+      {type === "BUSINESS" && (
+        <Link
+          href="/profile"
+          className="mt-3 inline-flex h-11 px-5 items-center rounded-xl bg-primary text-white font-medium"
+        >
+          View profile
         </Link>
       )}
     </div>
