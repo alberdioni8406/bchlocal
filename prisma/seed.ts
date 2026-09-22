@@ -41,6 +41,7 @@ async function main() {
     { key: "price_business_monthly", value: "500" },
     { key: "default_country", value: "MZ" },
     { key: "default_city", value: "Maputo" },
+    { key: "mzn_per_usd", value: "64" },
   ];
   for (const s of settings) {
     await prisma.platformSetting.upsert({
