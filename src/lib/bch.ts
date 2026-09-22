@@ -14,18 +14,62 @@ export function isDemoPaymentMode(): boolean {
   return DEMO_MODE;
 }
 
-/** Approximate MZN per BCH. In production, fetch live rate. */
+/**
+ * MZN per BCH.
+ * Prefer a recent DB-cached rate (updated by admin or a future cron).
+ * If missing/stale (>6h), attempt a live CoinGecko fetch and cache it.
+ * Falls back to a conservative placeholder so the marketplace never breaks.
+ */
 export async function getBchRateMzn(): Promise<number> {
+  const FALLBACK = 45000;
+  const STALE_MS = 6 * 60 * 60 * 1000;
+
   try {
     const latest = await prisma.bchRate.findFirst({
       orderBy: { createdAt: "desc" },
     });
-    if (latest) return Number(latest.rateMzn);
+    if (latest) {
+      const age = Date.now() - latest.createdAt.getTime();
+      if (age < STALE_MS) return Number(latest.rateMzn);
+    }
 
-    // Fallback approximate (update via admin or cron)
-    return 45000; // example placeholder ~ USD price * MZN/USD
+    // Live fetch (CoinGecko public endpoint). Fail soft.
+    const apiUrl =
+      process.env.BCH_RATE_API_URL ||
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin-cash&vs_currencies=usd";
+    const res = await fetch(apiUrl, { next: { revalidate: 300 } });
+    if (res.ok) {
+      const data = (await res.json()) as { "bitcoin-cash"?: { usd?: number } };
+      const usd = data?.["bitcoin-cash"]?.usd;
+      if (typeof usd === "number" && usd > 0) {
+        // Approximate MZN/USD. Prefer a platform setting if present.
+        let mznPerUsd = 64; // conservative placeholder; update via PlatformSetting
+        try {
+          const setting = await prisma.platformSetting.findUnique({
+            where: { key: "mzn_per_usd" },
+          });
+          if (setting) {
+            const parsed = parseFloat(setting.value);
+            if (parsed > 0) mznPerUsd = parsed;
+          }
+        } catch {
+          /* ignore */
+        }
+        const rateMzn = Math.round(usd * mznPerUsd);
+        // Cache for next callers (best-effort)
+        prisma.bchRate
+          .create({
+            data: { rateMzn, source: "coingecko" },
+          })
+          .catch(() => {});
+        return rateMzn;
+      }
+    }
+
+    if (latest) return Number(latest.rateMzn);
+    return FALLBACK;
   } catch {
-    return 45000;
+    return FALLBACK;
   }
 }
 
