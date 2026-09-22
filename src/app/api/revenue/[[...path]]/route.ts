@@ -10,6 +10,11 @@ import {
   generatePaymentRequestId,
 } from "@/lib/bch";
 import { z } from "zod";
+import {
+  grantBusinessEntitlements,
+  revokeExpiredBusinessEntitlements,
+  BUSINESS_ENTITLEMENTS,
+} from "@/lib/entitlements";
 
 type Ctx = { params: Promise<{ path?: string[] }> };
 
@@ -248,9 +253,23 @@ async function getBusiness() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const sub = await prisma.businessSubscription.findUnique({
+    let sub = await prisma.businessSubscription.findUnique({
       where: { userId: session.user.id },
     });
+
+    if (sub && sub.status === "ACTIVE" && sub.endsAt <= new Date()) {
+      await prisma.businessSubscription.update({
+        where: { id: sub.id },
+        data: { status: "EXPIRED" },
+      });
+      await revokeExpiredBusinessEntitlements(prisma, session.user.id);
+      sub = { ...sub, status: "EXPIRED" };
+    }
+
+    if (sub && sub.status === "ACTIVE" && sub.endsAt > new Date()) {
+      await grantBusinessEntitlements(prisma, session.user.id);
+    }
+
     const priceMzn = await getPromotionPrice("BUSINESS_MONTHLY");
     const priceBch = await mznToBch(priceMzn);
 
@@ -266,6 +285,7 @@ async function getBusiness() {
         : null,
       priceMzn,
       priceBch,
+      entitlements: BUSINESS_ENTITLEMENTS,
     });
   } catch (err) {
     console.error(err);
@@ -336,14 +356,7 @@ async function postBusiness() {
       });
 
       if (demo) {
-        await tx.user.update({
-          where: { id: session.user.id },
-          data: { role: "BUSINESS" },
-        });
-        await tx.profile.updateMany({
-          where: { userId: session.user.id },
-          data: { isBusiness: true },
-        });
+        await grantBusinessEntitlements(tx, session.user.id);
       }
 
       return { sub, revenue };
@@ -414,5 +427,53 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
   const segment = path?.[0];
   if (segment === "promotions") return patchPromotion(req);
+  if (segment === "business") return patchBusiness(req);
   return NextResponse.json({ error: "Unknown revenue path" }, { status: 404 });
+}
+
+async function patchBusiness(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const body = z
+      .object({ action: z.enum(["activate_demo"]) })
+      .parse(await req.json());
+
+    if (body.action !== "activate_demo" || !isDemoPaymentMode()) {
+      return NextResponse.json(
+        { error: "Demo activation only allowed when DEMO_PAYMENT_MODE=true" },
+        { status: 403 }
+      );
+    }
+
+    const sub = await prisma.businessSubscription.findUnique({
+      where: { userId: session.user.id },
+    });
+    if (!sub) {
+      return NextResponse.json({ error: "No subscription found" }, { status: 404 });
+    }
+
+    const endsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await prisma.$transaction(async (tx) => {
+      await tx.businessSubscription.update({
+        where: { id: sub.id },
+        data: { status: "ACTIVE", startsAt: new Date(), endsAt },
+      });
+      await tx.revenueTransaction.updateMany({
+        where: { businessSubId: sub.id },
+        data: { status: "PAID", paidAt: new Date() },
+      });
+      await grantBusinessEntitlements(tx, session.user.id);
+    });
+
+    return NextResponse.json({ ok: true, status: "ACTIVE", endsAt });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    }
+    console.error("PATCH business error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 }
