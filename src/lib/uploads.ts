@@ -63,13 +63,13 @@ export async function storeListingImage(file: File): Promise<string> {
     return url;
   }
 
-  // Vercel serverless has no writable public/ directory
+  // Vercel serverless has no durable writable disk. Prefer Cloudinary for production.
   const onVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
   if (onVercel) {
-    // Cap data-URL size for DB safety (~1.5MB decoded)
+    // Cap data-URL size for DB safety (~1.5MB decoded). Data-URLs are a demo fallback only.
     if (file.size > 1.5 * 1024 * 1024) {
       throw new Error(
-        "On Vercel without Cloudinary, images must be under 1.5MB. Set CLOUDINARY_CLOUD_NAME and CLOUDINARY_UPLOAD_PRESET, or use a smaller photo."
+        "Image too large for temporary storage (max 1.5MB). Configure CLOUDINARY_CLOUD_NAME and CLOUDINARY_UPLOAD_PRESET for production, or upload a smaller photo."
       );
     }
     const buf = Buffer.from(await file.arrayBuffer());
