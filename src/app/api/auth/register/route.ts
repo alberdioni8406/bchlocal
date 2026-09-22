@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { rateLimit, clientKey } from "@/lib/rate-limit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -13,6 +14,18 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
+    const limited = rateLimit({
+      key: clientKey(req, "register"),
+      limit: 8,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "Too many registration attempts. Try again later." },
+        { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } }
+      );
+    }
+
     const body = await req.json();
     const data = schema.parse(body);
 
