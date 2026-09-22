@@ -16,6 +16,8 @@ export type ListingCardData = {
     username: string;
     rating?: number | null;
     trustLevel?: string | null;
+    isBusiness?: boolean | null;
+    verifiedBusiness?: boolean | null;
   };
   promotion?: string | null;
   category?: { slug: string; nameEn: string } | null;
@@ -125,7 +127,18 @@ export function ListingCard({
         </div>
 
         <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-400">
-          <span className="truncate">@{listing.seller.username}</span>
+          <span className="truncate flex items-center gap-1">
+            @{listing.seller.username}
+            {listing.seller.verifiedBusiness ? (
+              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-semibold">
+                Verified
+              </span>
+            ) : listing.seller.isBusiness ? (
+              <span className="px-1.5 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-100 font-medium">
+                Business
+              </span>
+            ) : null}
+          </span>
           <span className="flex items-center gap-1 shrink-0 ml-2">
             {listing.condition && (
               <span className="px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 border border-slate-100">
