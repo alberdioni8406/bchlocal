@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Package,
   Heart,
@@ -20,12 +20,29 @@ import {
 export default function ProfilePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [me, setMe] = useState<{
+    role?: string;
+    profile?: {
+      trustLevel?: string | null;
+      isBusiness?: boolean;
+      verifiedBusiness?: boolean;
+      completedTx?: number;
+    } | null;
+  } | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/auth/signin");
     }
   }, [status, router]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    fetch("/api/me/profile")
+      .then((r) => r.json())
+      .then((d) => setMe(d))
+      .catch(() => {});
+  }, [status]);
 
   if (status === "loading") {
     return (
@@ -58,12 +75,28 @@ export default function ProfilePage() {
             {session.user?.name || session.user?.username}
           </h1>
           <p className="text-sm text-slate-500">@{session.user?.username}</p>
-          <div className="flex items-center gap-1 mt-1 text-sm text-slate-600">
+          <div className="flex items-center gap-2 mt-1 text-sm text-slate-600 flex-wrap">
             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-            <span>New</span>
+            <span>{me?.profile?.trustLevel || "New"}</span>
+            {me?.profile?.verifiedBusiness && (
+              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">
+                Verified Business
+              </span>
+            )}
           </div>
         </div>
       </div>
+
+      {me?.profile?.verifiedBusiness && (
+        <div className="mb-6 p-4 rounded-2xl border border-blue-100 bg-blue-50/60">
+          <p className="font-semibold text-slate-900">Business entitlements active</p>
+          <ul className="mt-2 space-y-1 text-sm text-slate-700">
+            <li>• Verified Business badge on your profile and listings</li>
+            <li>• Higher placement among organic listings</li>
+            <li>• Shop-style public profile for buyers</li>
+          </ul>
+        </div>
+      )}
 
       {/* Promote CTA */}
       <Link
