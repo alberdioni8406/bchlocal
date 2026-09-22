@@ -62,6 +62,7 @@ async function getProfile() {
           bchAddress: user.profile.bchAddress,
           defaultDelivery: user.profile.defaultDelivery,
           isBusiness: user.profile.isBusiness,
+          verifiedBusiness: user.profile.verifiedBusiness,
           businessName: user.profile.businessName,
           trustLevel: user.profile.trustLevel,
           completedTx: user.profile.completedTx,
