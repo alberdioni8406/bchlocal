@@ -309,9 +309,24 @@ async function demoPayment(id: string, userId: string, action: string) {
     await prisma.listing
       .update({ where: { id: order.listingId }, data: { status: "SOLD" } })
       .catch(() => {});
-    await prisma.profile
-      .update({ where: { userId: order.sellerId }, data: { completedTx: { increment: 1 } } })
-      .catch(() => {});
+    // Keep trust progression consistent with real payment path
+    const profile = await prisma.profile.findUnique({
+      where: { userId: order.sellerId },
+      select: { completedTx: true, trustLevel: true },
+    });
+    if (profile) {
+      const newTx = (profile.completedTx || 0) + 1;
+      let trustLevel = profile.trustLevel || "New";
+      if (newTx >= 20 && trustLevel === "Established") trustLevel = "Trusted";
+      else if (newTx >= 5 && (trustLevel === "New" || !trustLevel))
+        trustLevel = "Established";
+      await prisma.profile
+        .update({
+          where: { userId: order.sellerId },
+          data: { completedTx: newTx, trustLevel },
+        })
+        .catch(() => {});
+    }
     return NextResponse.json({ status: "CONFIRMED" });
   }
 
