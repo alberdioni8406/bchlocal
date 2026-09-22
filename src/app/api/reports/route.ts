@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { rateLimit, clientKey } from "@/lib/rate-limit";
 
 const schema = z.object({
   reason: z.enum([
@@ -26,6 +27,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const limited = rateLimit({
+      key: clientKey(req, `report:${session.user.id}`),
+      limit: 10,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "Too many reports. Please wait before submitting another." },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const data = schema.parse(body);
 
@@ -34,6 +47,9 @@ export async function POST(req: NextRequest) {
         { error: "listingId or reportedUserId required" },
         { status: 400 }
       );
+    }
+    if (data.reportedUserId && data.reportedUserId === session.user.id) {
+      return NextResponse.json({ error: "You cannot report yourself" }, { status: 400 });
     }
 
     const report = await prisma.report.create({
