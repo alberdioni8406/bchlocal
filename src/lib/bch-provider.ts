@@ -147,6 +147,8 @@ export async function verifyPaymentById(paymentId: string): Promise<{
   });
 
   if (result.status === "CONFIRMED") {
+    // Unify with demo path: confirmed payment completes the order,
+    // marks the listing sold, and increments seller transaction count.
     await prisma.$transaction(async (tx) => {
       await tx.payment.update({
         where: { id: paymentId },
@@ -159,21 +161,46 @@ export async function verifyPaymentById(paymentId: string): Promise<{
       });
       await tx.order.update({
         where: { id: payment.orderId },
-        data: { status: "PAYMENT_CONFIRMED" },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+        },
       });
+      await tx.listing
+        .update({
+          where: { id: payment.order.listingId },
+          data: { status: "SOLD" },
+        })
+        .catch(() => {});
+      // Increment completedTx and advance trust level when appropriate
+      const profile = await tx.profile.findUnique({
+        where: { userId: payment.order.sellerId },
+        select: { completedTx: true, trustLevel: true },
+      });
+      if (profile) {
+        const newTx = (profile.completedTx || 0) + 1;
+        let trustLevel = profile.trustLevel || "New";
+        if (newTx >= 20 && trustLevel === "Established") trustLevel = "Trusted";
+        else if (newTx >= 5 && (trustLevel === "New" || !trustLevel))
+          trustLevel = "Established";
+        await tx.profile.update({
+          where: { userId: payment.order.sellerId },
+          data: { completedTx: newTx, trustLevel },
+        });
+      }
     });
     await createNotification({
       userId: payment.order.sellerId,
       type: "PAYMENT_CONFIRMED",
       title: "Payment confirmed",
-      body: "A BCH payment for your order was confirmed.",
+      body: "A BCH payment for your order was confirmed. Order is complete.",
       link: `/orders/${payment.orderId}`,
     });
     await createNotification({
       userId: payment.order.buyerId,
       type: "PAYMENT_CONFIRMED",
       title: "Payment confirmed",
-      body: "Your BCH payment was confirmed.",
+      body: "Your BCH payment was confirmed. You can now leave a review.",
       link: `/orders/${payment.orderId}`,
     });
     return { status: "CONFIRMED", txId: result.txId, isDemo: false };
