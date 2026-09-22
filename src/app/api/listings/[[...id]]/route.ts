@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { z } from "zod";
 import { getBchRateMzn } from "@/lib/bch";
+import { promotionRank } from "@/lib/entitlements";
 
 type Ctx = { params: Promise<{ id?: string[] }> };
 
@@ -46,12 +47,18 @@ async function listListings(req: NextRequest) {
     if (sort === "price_asc") orderBy = { priceMzn: "asc" };
     if (sort === "price_desc") orderBy = { priceMzn: "desc" };
 
+    // Fetch extra rows on "recent" so paid promotions can be ranked to the top
+    // without a schema change. Fine for the current catalog size.
+    const fetchTake =
+      sort === "recent" || !sort ? Math.min(Math.max(limit + offset + 40, limit), 80) : limit;
+    const fetchSkip = sort === "recent" || !sort ? 0 : offset;
+
     const [listings, total] = await Promise.all([
       prisma.listing.findMany({
         where,
         orderBy,
-        take: limit,
-        skip: offset,
+        take: fetchTake,
+        skip: fetchSkip,
         include: {
           category: true,
           images: { where: { isPrimary: true }, take: 1 },
@@ -66,6 +73,8 @@ async function listListings(req: NextRequest) {
                   completedTx: true,
                   trustLevel: true,
                   avatarUrl: true,
+                  isBusiness: true,
+                  verifiedBusiness: true,
                 },
               },
             },
@@ -102,11 +111,26 @@ async function listListings(req: NextRequest) {
         rating: l.seller.profile?.averageRating,
         completedTx: l.seller.profile?.completedTx,
         trustLevel: l.seller.profile?.trustLevel,
+        isBusiness: l.seller.profile?.isBusiness || false,
+        verifiedBusiness: l.seller.profile?.verifiedBusiness || false,
       },
       promotion: l.promotions[0]?.type || null,
     }));
 
-    return NextResponse.json({ listings: data, total, limit, offset });
+    let ranked = data;
+    if (sort === "recent" || !sort) {
+      ranked = [...data].sort((a, b) => {
+        const ra = promotionRank(a.promotion) + (a.seller.verifiedBusiness ? 0.4 : a.seller.isBusiness ? 0.2 : 0);
+        const rb = promotionRank(b.promotion) + (b.seller.verifiedBusiness ? 0.4 : b.seller.isBusiness ? 0.2 : 0);
+        if (rb !== ra) return rb - ra;
+        const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+        const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+        return tb - ta;
+      });
+      ranked = ranked.slice(offset, offset + limit);
+    }
+
+    return NextResponse.json({ listings: ranked, total, limit, offset });
   } catch (err) {
     console.error("Listings GET error:", err);
     const detail =
@@ -119,7 +143,7 @@ async function listListings(req: NextRequest) {
         : undefined;
     return NextResponse.json(
       { listings: [], total: 0, offline: true, detail, code },
-      { status: 200 }
+      { status: 503 }
     );
   }
 }
@@ -185,6 +209,7 @@ async function getListing(id: string) {
         trustLevel: listing.seller.profile?.trustLevel,
         isBusiness: listing.seller.profile?.isBusiness,
         verifiedBusiness: listing.seller.profile?.verifiedBusiness,
+        isBusiness: listing.seller.profile?.isBusiness,
         avatarUrl: listing.seller.profile?.avatarUrl,
         memberSince: listing.seller.profile?.createdAt,
       },
