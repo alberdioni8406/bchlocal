@@ -110,6 +110,16 @@ export default async function UserProfilePage({ params }: Props) {
 
       {profile.bio && <p className="text-sm text-slate-700 mb-6">{profile.bio}</p>}
 
+      {profile.verifiedBusiness && (
+        <div className="mb-6 p-4 rounded-2xl border border-blue-100 bg-blue-50/50 text-sm text-slate-800">
+          <p className="font-semibold text-slate-900">Verified Business</p>
+          <p className="mt-1 text-slate-600">
+            This seller pays for a business subscription. They get a verified badge and
+            higher organic visibility. BCH Local still does not hold trade funds.
+          </p>
+        </div>
+      )}
+
       <h2 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
         <Package className="w-4 h-4" /> Listings
       </h2>
