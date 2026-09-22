@@ -36,6 +36,8 @@ type ListingDetail = {
     rating?: number | null;
     completedTx?: number | null;
     trustLevel?: string | null;
+    isBusiness?: boolean | null;
+    verifiedBusiness?: boolean | null;
   };
   promotion?: { type: string } | null;
   status?: string;
@@ -357,6 +359,11 @@ export default function ListingPage() {
                 {listing.seller.trustLevel && (
                   <span className="px-2 py-0.5 rounded-full bg-green-50 text-primary text-xs font-medium">
                     {listing.seller.trustLevel}
+                  </span>
+                )}
+                {listing.seller.verifiedBusiness && (
+                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                    Verified Business
                   </span>
                 )}
               </div>
